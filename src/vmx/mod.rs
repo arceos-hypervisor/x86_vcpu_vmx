@@ -1,5 +1,4 @@
 mod definitions;
-mod frame;
 mod instructions;
 mod percpu;
 mod structs;
