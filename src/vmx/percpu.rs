@@ -2,7 +2,7 @@ use x86::bits64::vmx;
 use x86_64::registers::control::{Cr0, Cr4, Cr4Flags};
 
 use axerrno::{ax_err, ax_err_type, AxResult};
-use axvcpu::AxVMArchPerCpu;
+use axvcpu::AxArchPerCpu;
 use memory_addr::PAGE_SIZE_4K as PAGE_SIZE;
 
 use crate::msr::Msr;
@@ -14,7 +14,7 @@ pub struct VmxPerCpuState {
     vmx_region: VmxRegion,
 }
 
-impl AxVMArchPerCpu for VmxPerCpuState {
+impl AxArchPerCpu for VmxPerCpuState {
     fn new(_cpu_id: usize) -> AxResult<Self> {
         Ok(Self {
             vmcs_revision_id: 0,
