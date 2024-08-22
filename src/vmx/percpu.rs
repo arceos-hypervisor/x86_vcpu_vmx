@@ -9,8 +9,22 @@ use crate::msr::Msr;
 use crate::vmx::has_hardware_support;
 use crate::vmx::structs::{FeatureControl, FeatureControlFlags, VmxBasic, VmxRegion};
 
+/// Represents the per-CPU state for Virtual Machine Extensions (VMX).
+///
+/// This structure holds the state information specific to a CPU core
+/// when operating in VMX mode, including the VMCS revision identifier and
+/// the VMX region.
 pub struct VmxPerCpuState {
+    /// The VMCS (Virtual Machine Control Structure) revision identifier.
+    ///
+    /// This identifier is used to ensure compatibility between the software
+    /// and the specific version of the VMCS that the CPU supports.
     pub(crate) vmcs_revision_id: u32,
+
+    /// The VMX region for this CPU.
+    ///
+    /// This region typically contains the VMCS and other state information
+    /// required for managing virtual machines on this particular CPU.
     vmx_region: VmxRegion,
 }
 
