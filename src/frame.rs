@@ -60,7 +60,8 @@ impl PhysFrame {
 
 impl Drop for PhysFrame {
     fn drop(&mut self) {
-        if self.start_paddr.as_usize() > 0 {
+        // Do not deallocate the frame if it is a empty frame.
+        if self.start_paddr.as_usize() > 0 && self.start_paddr.as_usize() != 0xdead_beef {
             crate_interface::call_interface!(PhysFrameIf::dealloc_frame(self.start_paddr));
             debug!("[AxVM] deallocated PhysFrame({:#x})", self.start_paddr);
         }

@@ -19,7 +19,7 @@ memory_addr = "0.2.0"
 crate_interface = "0.1"
 
 axaddrspace = { git = "https://github.com/arceos-hypervisor/axaddrspace.git" }
-axvcpu = { git = "https://github.com/arceos-hypervisor/axvcpu.git" }
+axvcpu = { git = "https://github.com/arceos-hypervisor/axvcpu.git", rev = "f7e5615" }
 
 [features]
 default = ["vmx"]
