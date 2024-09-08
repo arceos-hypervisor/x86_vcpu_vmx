@@ -1125,29 +1125,34 @@ impl AxArchVCpu for VmxVcpu {
                             const QEMU_EXIT_PORT: u16 = 0x604;
                             const QEMU_EXIT_MAGIC: u64 = 0x2000;
 
-                            AccessWidth::try_from(io_info.access_size as usize)
-                                .map(|width| {
-                                    if io_info.is_in {
-                                        AxVCpuExitReason::IoRead { port, width }
-                                    } else if port == QEMU_EXIT_PORT
-                                        && width == AccessWidth::Word
-                                        && self.regs().rax == QEMU_EXIT_MAGIC
-                                    {
-                                        AxVCpuExitReason::SystemDown
-                                    } else {
-                                        let data = self.regs().rax.get_bits(width.bits_range());
-
-                                        AxVCpuExitReason::IoWrite { port, width, data }
-                                    }
-                                })
-                                .unwrap_or_else(|_| {
+                            let width = match AccessWidth::try_from(io_info.access_size as usize) {
+                                Ok(width) => width,
+                                Err(_) => {
                                     warn!(
                                         "VMX invalid IO-Exit: {:#x?} of {:#x?}",
                                         io_info, exit_info
                                     );
                                     warn!("VCpu {:#x?}", self);
-                                    AxVCpuExitReason::Halt
-                                })
+                                    return Ok(AxVCpuExitReason::Halt);
+                                }
+                            };
+
+                            if io_info.is_in {
+                                AxVCpuExitReason::IoRead { port, width }
+                            } else {
+                                if port == QEMU_EXIT_PORT
+                                    && width == AccessWidth::Word
+                                    && self.regs().rax == QEMU_EXIT_MAGIC
+                                {
+                                    AxVCpuExitReason::SystemDown
+                                } else {
+                                    AxVCpuExitReason::IoWrite {
+                                        port,
+                                        width,
+                                        data: self.regs().rax.get_bits(width.bits_range()),
+                                    }
+                                }
+                            }
                         }
                     }
                     _ => {
