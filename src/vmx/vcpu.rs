@@ -23,7 +23,7 @@ use super::vmcs::{
 use super::VmxExitInfo;
 use crate::{ept::GuestPageWalkInfo, msr::Msr, regs::GeneralRegisters};
 
-const VMX_PREEMPTION_TIMER_SET_VALUE: u32 = 1000_000;
+const VMX_PREEMPTION_TIMER_SET_VALUE: u32 = 1_000_000;
 
 pub struct XState {
     host_xcr0: u64,
@@ -147,14 +147,14 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
         if (ia32_efer & MSR_IA32_EFER_LMA_BIT) != 0 {
             if (cs_access_right & 0x2000) != 0 {
                 // CS.L = 1
-                return VmCpuMode::Mode64;
+                VmCpuMode::Mode64
             } else {
-                return VmCpuMode::Compatibility;
+                VmCpuMode::Compatibility
             }
         } else if (cr0 & CR0_PE) != 0 {
-            return VmCpuMode::Protected;
+            VmCpuMode::Protected
         } else {
-            return VmCpuMode::Real;
+            VmCpuMode::Real
         }
     }
 
@@ -245,12 +245,11 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     /// Translate guest virtual addr to linear addr    
     pub fn gla2gva(&self, guest_rip: GuestVirtAddr) -> GuestVirtAddr {
         let cpu_mode = self.get_cpu_mode();
-        let seg_base;
-        if cpu_mode == VmCpuMode::Mode64 {
-            seg_base = 0;
+        let seg_base = if cpu_mode == VmCpuMode::Mode64 {
+            0
         } else {
-            seg_base = VmcsGuestNW::CS_BASE.read().unwrap();
-        }
+            VmcsGuestNW::CS_BASE.read().unwrap()
+        };
         // debug!(
         //     "seg_base: {:#x}, guest_rip: {:#x} cpu mode:{:?}",
         //     seg_base, guest_rip, cpu_mode
@@ -313,7 +312,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Advance guest `RIP` by `instr_len` bytes.
     pub fn advance_rip(&mut self, instr_len: u8) -> AxResult {
-        Ok(VmcsGuestNW::RIP.write(VmcsGuestNW::RIP.read()? + instr_len as usize)?)
+        VmcsGuestNW::RIP.write(VmcsGuestNW::RIP.read()? + instr_len as usize)
     }
 
     /// Add a virtual interrupt or exception to the pending events list,
@@ -835,6 +834,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
         let reg = cr_access_info.gpr;
         let cr = cr_access_info.cr_number;
 
+        #[allow(clippy::single_match)]
         match cr_access_info.access_type {
             /* move to cr */
             0 => {
@@ -980,14 +980,12 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
                     if x.contains(Xcr0::XCR0_OPMASK_STATE)
                         || x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
                         || x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
+                        || !x.contains(Xcr0::XCR0_AVX_STATE)
+                        || !x.contains(Xcr0::XCR0_OPMASK_STATE)
+                        || !x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
+                        || !x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
                     {
-                        if !x.contains(Xcr0::XCR0_AVX_STATE)
-                            || !x.contains(Xcr0::XCR0_OPMASK_STATE)
-                            || !x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
-                            || !x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
-                        {
-                            return None;
-                        }
+                        return None;
                     }
 
                     Some(x)
@@ -1139,18 +1137,16 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
 
                             if io_info.is_in {
                                 AxVCpuExitReason::IoRead { port, width }
+                            } else if port == QEMU_EXIT_PORT
+                                && width == AccessWidth::Word
+                                && self.regs().rax == QEMU_EXIT_MAGIC
+                            {
+                                AxVCpuExitReason::SystemDown
                             } else {
-                                if port == QEMU_EXIT_PORT
-                                    && width == AccessWidth::Word
-                                    && self.regs().rax == QEMU_EXIT_MAGIC
-                                {
-                                    AxVCpuExitReason::SystemDown
-                                } else {
-                                    AxVCpuExitReason::IoWrite {
-                                        port,
-                                        width,
-                                        data: self.regs().rax.get_bits(width.bits_range()),
-                                    }
+                                AxVCpuExitReason::IoWrite {
+                                    port,
+                                    width,
+                                    data: self.regs().rax.get_bits(width.bits_range()),
                                 }
                             }
                         }
