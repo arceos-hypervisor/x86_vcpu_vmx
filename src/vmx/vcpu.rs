@@ -1,7 +1,7 @@
 use alloc::collections::VecDeque;
 use bit_field::BitField;
 use core::fmt::{Debug, Formatter, Result};
-use core::{arch::asm, mem::size_of};
+use core::{arch::naked_asm, mem::size_of};
 use raw_cpuid::CpuId;
 use x86::bits64::vmx;
 use x86::controlregs::{xcr0 as xcr0_read, xcr0_write, Xcr0};
@@ -717,7 +717,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 /// Get ready then vmlaunch or vmresume.
 macro_rules! vmx_entry_with {
     ($instr:literal) => {
-        asm!(
+        naked_asm!(
             save_regs_to_stack!(),                  // save host status
             "mov    [rdi + {host_stack_size}], rsp", // save current RSP to Vcpu::host_stack_top
             "mov    rsp, rdi",                      // set RSP to guest regs area
@@ -726,7 +726,7 @@ macro_rules! vmx_entry_with {
             "jmp    {failed}",
             host_stack_size = const size_of::<GeneralRegisters>(),
             failed = sym Self::vmx_entry_failed,
-            options(noreturn),
+            options(),
         )
     }
 }
@@ -757,13 +757,13 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     ///
     /// The return value is a dummy value.
     unsafe extern "C" fn vmx_exit(&mut self) -> usize {
-        asm!(
+        naked_asm!(
             save_regs_to_stack!(),                  // save guest status
             "mov    rsp, [rsp + {host_stack_top}]", // set RSP to Vcpu::host_stack_top
             restore_regs_from_stack!(),             // restore host status
             "ret",
             host_stack_top = const size_of::<GeneralRegisters>(),
-            options(noreturn),
+            options(),
         );
     }
 

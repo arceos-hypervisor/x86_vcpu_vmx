@@ -1,7 +1,6 @@
 #![no_std]
 #![feature(doc_cfg)]
 #![feature(concat_idents)]
-#![feature(asm_const)]
 #![feature(naked_functions)]
 #![doc = include_str!("../README.md")]
 
@@ -24,6 +23,12 @@ cfg_if::cfg_if! {
 
         pub use vender::VmxArchVCpu;
         pub use vender::VmxArchPerCpuState;
+    }
+}
+
+cfg_if::cfg_if! {
+    if #[cfg(feature = "svm")]{
+        pub mod svm;
     }
 }
 
