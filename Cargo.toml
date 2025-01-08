@@ -25,6 +25,3 @@ axvcpu = { git = "https://github.com/arceos-hypervisor/axvcpu.git", branch = "in
 default = ["vmx"]
 vmx = []
 amd = []
-
-[patch.crates-io]
-page_table_entry = { git = "https://github.com/arceos-hypervisor/page_table_multiarch.git", branch = "fix_old_x86_64" }

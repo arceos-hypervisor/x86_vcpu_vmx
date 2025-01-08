@@ -1,5 +1,4 @@
 use alloc::collections::VecDeque;
-use axaddrspace::device::{AccessWidth, Port};
 use bit_field::BitField;
 use core::fmt::{Debug, Formatter, Result};
 use core::{arch::naked_asm, mem::size_of};
@@ -10,9 +9,10 @@ use x86::dtables::{self, DescriptorTablePointer};
 use x86::segmentation::SegmentSelector;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags, EferFlags};
 
+use axaddrspace::device::{AccessWidth, Port};
 use axaddrspace::{GuestPhysAddr, GuestVirtAddr, HostPhysAddr, NestedPageFaultInfo};
 use axerrno::{AxResult, ax_err, ax_err_type};
-use axvcpu::{AccessWidth, AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
+use axvcpu::{AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
 
 use super::VmxExitInfo;
 use super::as_axerr;
@@ -72,9 +72,9 @@ pub struct VmxVcpu<H: AxVCpuHal> {
     guest_regs: GeneralRegisters,
     host_stack_top: u64,
     launched: bool,
-    vmcs: VmxRegion<H>,
-    io_bitmap: IOBitmap<H>,
-    msr_bitmap: MsrBitmap<H>,
+    vmcs: VmxRegion<H::MmHal>,
+    io_bitmap: IOBitmap<H::MmHal>,
+    msr_bitmap: MsrBitmap<H::MmHal>,
     pending_events: VecDeque<(u8, Option<u32>)>,
     xstate: XState,
     entry: Option<GuestPhysAddr>,
@@ -1143,7 +1143,10 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                             };
 
                             if io_info.is_in {
-                                AxVCpuExitReason::IoRead { port, width }
+                                AxVCpuExitReason::IoRead {
+                                    port: Port(port),
+                                    width,
+                                }
                             } else if port == QEMU_EXIT_PORT
                                 && width == AccessWidth::Word
                                 && self.regs().rax == QEMU_EXIT_MAGIC
@@ -1151,7 +1154,7 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                                 AxVCpuExitReason::SystemDown
                             } else {
                                 AxVCpuExitReason::IoWrite {
-                                    port,
+                                    port: Port(port),
                                     width,
                                     data: self.regs().rax.get_bits(width.bits_range()),
                                 }
