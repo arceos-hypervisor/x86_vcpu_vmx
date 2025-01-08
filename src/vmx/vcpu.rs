@@ -2,18 +2,19 @@ use alloc::collections::VecDeque;
 use axaddrspace::device::{AccessWidth, Port};
 use bit_field::BitField;
 use core::fmt::{Debug, Formatter, Result};
-use core::{arch::asm, mem::size_of};
+use core::{arch::naked_asm, mem::size_of};
 use raw_cpuid::CpuId;
 use x86::bits64::vmx;
-use x86::controlregs::{xcr0 as xcr0_read, xcr0_write, Xcr0};
+use x86::controlregs::{Xcr0, xcr0 as xcr0_read, xcr0_write};
 use x86::dtables::{self, DescriptorTablePointer};
 use x86::segmentation::SegmentSelector;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags, EferFlags};
 
 use axaddrspace::{GuestPhysAddr, GuestVirtAddr, HostPhysAddr, NestedPageFaultInfo};
-use axerrno::{ax_err, ax_err_type, AxResult};
-use axvcpu::{AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
+use axerrno::{AxResult, ax_err, ax_err_type};
+use axvcpu::{AccessWidth, AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
 
+use super::VmxExitInfo;
 use super::as_axerr;
 use super::definitions::VmxExitReason;
 use super::structs::{IOBitmap, MsrBitmap, VmxRegion};
@@ -21,10 +22,9 @@ use super::vmcs::{
     self, VmcsControl32, VmcsControl64, VmcsControlNW, VmcsGuest16, VmcsGuest32, VmcsGuest64,
     VmcsGuestNW, VmcsHost16, VmcsHost32, VmcsHost64, VmcsHostNW,
 };
-use super::VmxExitInfo;
 use crate::{ept::GuestPageWalkInfo, msr::Msr, regs::GeneralRegisters};
 
-const VMX_PREEMPTION_TIMER_SET_VALUE: u32 = 1000_000;
+const VMX_PREEMPTION_TIMER_SET_VALUE: u32 = 1_000_000;
 
 pub struct XState {
     host_xcr0: u64,
@@ -148,14 +148,14 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
         if (ia32_efer & MSR_IA32_EFER_LMA_BIT) != 0 {
             if (cs_access_right & 0x2000) != 0 {
                 // CS.L = 1
-                return VmCpuMode::Mode64;
+                VmCpuMode::Mode64
             } else {
-                return VmCpuMode::Compatibility;
+                VmCpuMode::Compatibility
             }
         } else if (cr0 & CR0_PE) != 0 {
-            return VmCpuMode::Protected;
+            VmCpuMode::Protected
         } else {
-            return VmCpuMode::Real;
+            VmCpuMode::Real
         }
     }
 
@@ -189,7 +189,12 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
         match self.builtin_vmexit_handler(&exit_info) {
             Some(result) => {
                 if result.is_err() {
-                    panic!("VmxVcpu failed to handle a VM-exit that should be handled by itself: {:?}, error {:?}, vcpu: {:#x?}", exit_info.exit_reason, result.unwrap_err(), self);
+                    panic!(
+                        "VmxVcpu failed to handle a VM-exit that should be handled by itself: {:?}, error {:?}, vcpu: {:#x?}",
+                        exit_info.exit_reason,
+                        result.unwrap_err(),
+                        self
+                    );
                 }
 
                 None
@@ -246,12 +251,11 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     /// Translate guest virtual addr to linear addr    
     pub fn gla2gva(&self, guest_rip: GuestVirtAddr) -> GuestVirtAddr {
         let cpu_mode = self.get_cpu_mode();
-        let seg_base;
-        if cpu_mode == VmCpuMode::Mode64 {
-            seg_base = 0;
+        let seg_base = if cpu_mode == VmCpuMode::Mode64 {
+            0
         } else {
-            seg_base = VmcsGuestNW::CS_BASE.read().unwrap();
-        }
+            VmcsGuestNW::CS_BASE.read().unwrap()
+        };
         // debug!(
         //     "seg_base: {:#x}, guest_rip: {:#x} cpu mode:{:?}",
         //     seg_base, guest_rip, cpu_mode
@@ -314,7 +318,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Advance guest `RIP` by `instr_len` bytes.
     pub fn advance_rip(&mut self, instr_len: u8) -> AxResult {
-        Ok(VmcsGuestNW::RIP.write(VmcsGuestNW::RIP.read()? + instr_len as usize)?)
+        VmcsGuestNW::RIP.write(VmcsGuestNW::RIP.read()? + instr_len as usize)
     }
 
     /// Add a virtual interrupt or exception to the pending events list,
@@ -718,17 +722,19 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 /// Get ready then vmlaunch or vmresume.
 macro_rules! vmx_entry_with {
     ($instr:literal) => {
-        asm!(
-            save_regs_to_stack!(),                  // save host status
-            "mov    [rdi + {host_stack_size}], rsp", // save current RSP to Vcpu::host_stack_top
-            "mov    rsp, rdi",                      // set RSP to guest regs area
-            restore_regs_from_stack!(),             // restore guest status
-            $instr,                                 // let's go!
-            "jmp    {failed}",
-            host_stack_size = const size_of::<GeneralRegisters>(),
-            failed = sym Self::vmx_entry_failed,
-            options(noreturn),
-        )
+        unsafe {
+            naked_asm!(
+                save_regs_to_stack!(),                  // save host status
+                "mov    [rdi + {host_stack_size}], rsp", // save current RSP to Vcpu::host_stack_top
+                "mov    rsp, rdi",                      // set RSP to guest regs area
+                restore_regs_from_stack!(),             // restore guest status
+                $instr,                                 // let's go!
+                "jmp    {failed}",
+                host_stack_size = const size_of::<GeneralRegisters>(),
+                failed = sym Self::vmx_entry_failed,
+                // options(noreturn),
+            )
+        }
     }
 }
 
@@ -758,14 +764,15 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     ///
     /// The return value is a dummy value.
     unsafe extern "C" fn vmx_exit(&mut self) -> usize {
-        asm!(
-            save_regs_to_stack!(),                  // save guest status
-            "mov    rsp, [rsp + {host_stack_top}]", // set RSP to Vcpu::host_stack_top
-            restore_regs_from_stack!(),             // restore host status
-            "ret",
-            host_stack_top = const size_of::<GeneralRegisters>(),
-            options(noreturn),
-        );
+        unsafe {
+            naked_asm!(
+                save_regs_to_stack!(),                  // save guest status
+                "mov    rsp, [rsp + {host_stack_top}]", // set RSP to Vcpu::host_stack_top
+                restore_regs_from_stack!(),             // restore host status
+                "ret",
+                host_stack_top = const size_of::<GeneralRegisters>(),
+            );
+        }
     }
 
     fn vmx_entry_failed() -> ! {
@@ -828,6 +835,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
         Ok(())
     }
 
+    #[allow(clippy::single_match)]
     fn handle_cr(&mut self) -> AxResult {
         const VM_EXIT_INSTR_LEN_MV_TO_CR: u8 = 3;
 
@@ -865,7 +873,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     }
 
     fn handle_cpuid(&mut self) -> AxResult {
-        use raw_cpuid::{cpuid, CpuIdResult};
+        use raw_cpuid::{CpuIdResult, cpuid};
 
         const VM_EXIT_INSTR_LEN_CPUID: u8 = 2;
         const LEAF_FEATURE_INFO: u32 = 0x1;
@@ -896,7 +904,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
                 if regs_clone.rcx == 0 {
                     // Bit 05: WAITPKG.
                     res.ecx.set_bit(5, false); // clear waitpkg
-                                               // Bit 16: LA57. Supports 57-bit linear addresses and five-level paging if 1.
+                    // Bit 16: LA57. Supports 57-bit linear addresses and five-level paging if 1.
                     res.ecx.set_bit(16, false); // clear LA57
                 }
 
@@ -940,9 +948,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
         trace!(
             "VM exit: CPUID({:#x}, {:#x}): {:?}",
-            regs_clone.rax,
-            regs_clone.rcx,
-            res
+            regs_clone.rax, regs_clone.rcx, res
         );
 
         let regs = self.regs_mut();
@@ -981,14 +987,12 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
                     if x.contains(Xcr0::XCR0_OPMASK_STATE)
                         || x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
                         || x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
+                        || !x.contains(Xcr0::XCR0_AVX_STATE)
+                        || !x.contains(Xcr0::XCR0_OPMASK_STATE)
+                        || !x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
+                        || !x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
                     {
-                        if !x.contains(Xcr0::XCR0_AVX_STATE)
-                            || !x.contains(Xcr0::XCR0_OPMASK_STATE)
-                            || !x.contains(Xcr0::XCR0_ZMM_HI256_STATE)
-                            || !x.contains(Xcr0::XCR0_HI16_ZMM_STATE)
-                        {
-                            return None;
-                        }
+                        return None;
                     }
 
                     Some(x)
@@ -1139,19 +1143,17 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                             };
 
                             if io_info.is_in {
-                                AxVCpuExitReason::IoRead { port: Port(port), width }
+                                AxVCpuExitReason::IoRead { port, width }
+                            } else if port == QEMU_EXIT_PORT
+                                && width == AccessWidth::Word
+                                && self.regs().rax == QEMU_EXIT_MAGIC
+                            {
+                                AxVCpuExitReason::SystemDown
                             } else {
-                                if port == QEMU_EXIT_PORT
-                                    && width == AccessWidth::Word
-                                    && self.regs().rax == QEMU_EXIT_MAGIC
-                                {
-                                    AxVCpuExitReason::SystemDown
-                                } else {
-                                    AxVCpuExitReason::IoWrite {
-                                        port: Port(port),
-                                        width,
-                                        data: self.regs().rax.get_bits(width.bits_range()),
-                                    }
+                                AxVCpuExitReason::IoWrite {
+                                    port,
+                                    width,
+                                    data: self.regs().rax.get_bits(width.bits_range()),
                                 }
                             }
                         }
