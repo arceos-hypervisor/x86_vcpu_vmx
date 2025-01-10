@@ -789,12 +789,13 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Try to inject a pending event before next VM entry.
     fn inject_pending_events(&mut self) -> AxResult {
+        trace!("inject_pending_events");
         if let Some(event) = self.pending_events.front() {
-            // debug!(
-            //     "inject_pending_events vector {:#x} allow_int {}",
-            //     event.0,
-            //     self.allow_interrupt()
-            // );
+            trace!(
+                "inject_pending_events vector {:#x} allow_int {}",
+                event.0,
+                self.allow_interrupt()
+            );
             if event.0 < 32 || self.allow_interrupt() {
                 trace!("Injecting event: {:#x?}", event);
                 // if it's an exception, or an interrupt that is not blocked, inject it directly.
