@@ -796,6 +796,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
             //     self.allow_interrupt()
             // );
             if event.0 < 32 || self.allow_interrupt() {
+                trace!("Injecting event: {:#x?}", event);
                 // if it's an exception, or an interrupt that is not blocked, inject it directly.
                 vmcs::inject_event(event.0, event.1)?;
                 self.pending_events.pop_front();
@@ -1186,6 +1187,7 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
     }
 
     fn inject_interrupt(&mut self, vector: usize) -> AxResult {
+        trace!("inject_interrupt: vector {:#x}", vector);
         Ok(self.queue_event(vector as u8, None))
     }
 }
