@@ -161,10 +161,12 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Run the guest. It returns when a vm-exit happens and returns the vm-exit if it cannot be handled by this [`VmxVcpu`] itself.
     pub fn inner_run(&mut self) -> Option<VmxExitInfo> {
+        trace!("inner_run, launched: {}", self.launched);
         // Inject pending events
         if self.launched {
             self.inject_pending_events().unwrap();
         }
+        trace!("inner_run, after inject_pending_events");
 
         // Run guest
         self.load_guest_xstate();
