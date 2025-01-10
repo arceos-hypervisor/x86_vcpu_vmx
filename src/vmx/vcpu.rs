@@ -161,12 +161,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Run the guest. It returns when a vm-exit happens and returns the vm-exit if it cannot be handled by this [`VmxVcpu`] itself.
     pub fn inner_run(&mut self) -> Option<VmxExitInfo> {
-        trace!("inner_run, launched: {}", self.launched);
-        // Inject pending events
-        // if self.launched {
         self.inject_pending_events().unwrap();
-        // }
-        trace!("inner_run, after inject_pending_events");
 
         // Run guest
         self.load_guest_xstate();
@@ -791,15 +786,13 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Try to inject a pending event before next VM entry.
     fn inject_pending_events(&mut self) -> AxResult {
-        trace!("inject_pending_events");
         if let Some(event) = self.pending_events.front() {
-            trace!(
-                "inject_pending_events vector {:#x} allow_int {}",
-                event.0,
-                self.allow_interrupt()
-            );
+            // trace!(
+            //     "pending event vector {:#x} allow_int {}",
+            //     event.0,
+            //     self.allow_interrupt()
+            // );
             if event.0 < 32 || self.allow_interrupt() {
-                trace!("Injecting event: {:#x?}", event);
                 // if it's an exception, or an interrupt that is not blocked, inject it directly.
                 vmcs::inject_event(event.0, event.1)?;
                 self.pending_events.pop_front();
@@ -1190,7 +1183,7 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
     }
 
     fn inject_interrupt(&mut self, vector: usize) -> AxResult {
-        trace!("inject_interrupt: vector {:#x}", vector);
+        trace!("interrupt queued in inject_interrupt: vector {:#x}", vector);
         Ok(self.queue_event(vector as u8, None))
     }
 }
