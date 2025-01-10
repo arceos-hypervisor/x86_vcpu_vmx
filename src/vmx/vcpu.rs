@@ -163,9 +163,9 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     pub fn inner_run(&mut self) -> Option<VmxExitInfo> {
         trace!("inner_run, launched: {}", self.launched);
         // Inject pending events
-        if self.launched {
-            self.inject_pending_events().unwrap();
-        }
+        // if self.launched {
+        self.inject_pending_events().unwrap();
+        // }
         trace!("inner_run, after inject_pending_events");
 
         // Run guest
