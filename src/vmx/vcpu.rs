@@ -9,9 +9,10 @@ use x86::dtables::{self, DescriptorTablePointer};
 use x86::segmentation::SegmentSelector;
 use x86_64::registers::control::{Cr0, Cr0Flags, Cr3, Cr4, Cr4Flags, EferFlags};
 
+use axaddrspace::device::{AccessWidth, Port};
 use axaddrspace::{GuestPhysAddr, GuestVirtAddr, HostPhysAddr, NestedPageFaultInfo};
 use axerrno::{AxResult, ax_err, ax_err_type};
-use axvcpu::{AccessWidth, AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
+use axvcpu::{AxArchVCpu, AxVCpuExitReason, AxVCpuHal};
 
 use super::VmxExitInfo;
 use super::as_axerr;
@@ -71,9 +72,9 @@ pub struct VmxVcpu<H: AxVCpuHal> {
     guest_regs: GeneralRegisters,
     host_stack_top: u64,
     launched: bool,
-    vmcs: VmxRegion<H>,
-    io_bitmap: IOBitmap<H>,
-    msr_bitmap: MsrBitmap<H>,
+    vmcs: VmxRegion<H::MmHal>,
+    io_bitmap: IOBitmap<H::MmHal>,
+    msr_bitmap: MsrBitmap<H::MmHal>,
     pending_events: VecDeque<(u8, Option<u32>)>,
     xstate: XState,
     entry: Option<GuestPhysAddr>,
@@ -160,10 +161,7 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
 
     /// Run the guest. It returns when a vm-exit happens and returns the vm-exit if it cannot be handled by this [`VmxVcpu`] itself.
     pub fn inner_run(&mut self) -> Option<VmxExitInfo> {
-        // Inject pending events
-        if self.launched {
-            self.inject_pending_events().unwrap();
-        }
+        self.inject_pending_events().unwrap();
 
         // Run guest
         self.load_guest_xstate();
@@ -534,9 +532,9 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
             VmcsControl32::PINBASED_EXEC_CONTROLS,
             Msr::IA32_VMX_TRUE_PINBASED_CTLS,
             Msr::IA32_VMX_PINBASED_CTLS.read() as u32,
-            // (PinCtrl::NMI_EXITING | PinCtrl::EXTERNAL_INTERRUPT_EXITING).bits(),
+            (PinCtrl::NMI_EXITING | PinCtrl::EXTERNAL_INTERRUPT_EXITING).bits(),
             // (PinCtrl::NMI_EXITING | PinCtrl::VMX_PREEMPTION_TIMER).bits(),
-            PinCtrl::NMI_EXITING.bits(),
+            // PinCtrl::NMI_EXITING.bits(),
             0,
         )?;
 
@@ -789,8 +787,8 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
     /// Try to inject a pending event before next VM entry.
     fn inject_pending_events(&mut self) -> AxResult {
         if let Some(event) = self.pending_events.front() {
-            // debug!(
-            //     "inject_pending_events vector {:#x} allow_int {}",
+            // trace!(
+            //     "pending event vector {:#x} allow_int {}",
             //     event.0,
             //     self.allow_interrupt()
             // );
@@ -1142,7 +1140,10 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                             };
 
                             if io_info.is_in {
-                                AxVCpuExitReason::IoRead { port, width }
+                                AxVCpuExitReason::IoRead {
+                                    port: Port(port),
+                                    width,
+                                }
                             } else if port == QEMU_EXIT_PORT
                                 && width == AccessWidth::Word
                                 && self.regs().rax == QEMU_EXIT_MAGIC
@@ -1150,12 +1151,17 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                                 AxVCpuExitReason::SystemDown
                             } else {
                                 AxVCpuExitReason::IoWrite {
-                                    port,
+                                    port: Port(port),
                                     width,
                                     data: self.regs().rax.get_bits(width.bits_range()),
                                 }
                             }
                         }
+                    },
+                    VmxExitReason::EXTERNAL_INTERRUPT => {
+                        let int_info = self.interrupt_exit_info()?;
+                        assert!(int_info.valid);
+                        AxVCpuExitReason::ExternalInterrupt { vector: int_info.vector as _ }
                     }
                     _ => {
                         warn!("VMX unsupported VM-Exit: {:#x?}", exit_info);
@@ -1179,5 +1185,10 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
 
     fn set_gpr(&mut self, reg: usize, val: usize) {
         self.regs_mut().set_reg_of_index(reg as u8, val as u64);
+    }
+
+    fn inject_interrupt(&mut self, vector: usize) -> AxResult {
+        trace!("interrupt queued in inject_interrupt: vector {:#x}", vector);
+        Ok(self.queue_event(vector as u8, None))
     }
 }
