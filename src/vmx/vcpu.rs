@@ -532,9 +532,9 @@ impl<H: AxVCpuHal> VmxVcpu<H> {
             VmcsControl32::PINBASED_EXEC_CONTROLS,
             Msr::IA32_VMX_TRUE_PINBASED_CTLS,
             Msr::IA32_VMX_PINBASED_CTLS.read() as u32,
-            // (PinCtrl::NMI_EXITING | PinCtrl::EXTERNAL_INTERRUPT_EXITING).bits(),
+            (PinCtrl::NMI_EXITING | PinCtrl::EXTERNAL_INTERRUPT_EXITING).bits(),
             // (PinCtrl::NMI_EXITING | PinCtrl::VMX_PREEMPTION_TIMER).bits(),
-            PinCtrl::NMI_EXITING.bits(),
+            // PinCtrl::NMI_EXITING.bits(),
             0,
         )?;
 
@@ -1157,6 +1157,11 @@ impl<H: AxVCpuHal> AxArchVCpu for VmxVcpu<H> {
                                 }
                             }
                         }
+                    },
+                    VmxExitReason::EXTERNAL_INTERRUPT => {
+                        let int_info = self.interrupt_exit_info()?;
+                        assert!(int_info.valid);
+                        AxVCpuExitReason::ExternalInterrupt { vector: int_info.vector as _ }
                     }
                     _ => {
                         warn!("VMX unsupported VM-Exit: {:#x?}", exit_info);
